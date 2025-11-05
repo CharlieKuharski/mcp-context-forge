@@ -67,9 +67,9 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=4444
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-mysecretpassword}@postgres:5432/mcp
+      # - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-mysecretpassword}@postgres:5432/mcp
       # - DATABASE_URL=mysql+pymysql://mysql:${MYSQL_PASSWORD:-changeme}@mariadb:3306/mcp
-      # - DATABASE_URL=mysql+pymysql://admin:${MARIADB_PASSWORD:-changeme}@mariadb:3306/mcp
+      - DATABASE_URL=mysql+pymysql://admin:${MARIADB_PASSWORD:-changeme}@mariadb:3306/mcp
       # - DATABASE_URL=mongodb://admin:${MONGO_PASSWORD:-changeme}@mongodb:27017/mcp
       - CACHE_TYPE=redis # backend for caching (memory, redis, database, or none)
       - REDIS_URL=redis://redis:6379/0
@@ -147,31 +147,31 @@ services:
 #  DATABASES - enable ONE of these blocks and adjust DATABASE_URL
 ###############################################################################
 
-  postgres:              # Official image - easy defaults
-    image: postgres:18
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=mysecretpassword
-      - POSTGRES_DB=mcp
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    networks: [mcpnet]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
-  # mariadb:
-  #   image: mariadb:11
+  # postgres:              # Official image - easy defaults
+  #   image: postgres:18
   #   environment:
-  #     - MARIADB_ROOT_PASSWORD=mysecretpassword
-  #     - MARIADB_DATABASE=mcp
-  #     - MARIADB_USER=admin
-  #     - MARIADB_PASSWORD=changeme
-  #   volumes: [mariadbdata:/var/lib/mysql]
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=mysecretpassword
+  #     - POSTGRES_DB=mcp
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
   #   networks: [mcpnet]
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 20s
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      - MARIADB_ROOT_PASSWORD=mysecretpassword
+      - MARIADB_DATABASE=mcp
+      - MARIADB_USER=admin
+      - MARIADB_PASSWORD=changeme
+    volumes: [mariadbdata:/var/lib/mysql]
+    networks: [mcpnet]
 
   # mariadb:
   #   image: registry.redhat.io/rhel9/mariadb-106:12.0.2-ubi10
@@ -237,7 +237,7 @@ services:
       - pgadmindata:/var/lib/pgadmin
     networks: [mcpnet]
     depends_on:
-      postgres:
+      mariadb:
         condition: service_healthy
 
   # ──────────────────────────────────────────────────────────────────────
