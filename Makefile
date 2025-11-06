@@ -2658,7 +2658,7 @@ docker-dev:
 	@$(MAKE) container-build CONTAINER_RUNTIME=docker CONTAINER_FILE=Containerfile
 
 docker:
-	@$(MAKE) container-build CONTAINER_RUNTIME=docker CONTAINER_FILE=Containerfile
+	@$(MAKE) container-build CONTAINER_RUNTIME=docker CONTAINER_FILE=Containerfile.lite
 
 docker-prod:
 	@DOCKER_CONTENT_TRUST=1 $(MAKE) container-build CONTAINER_RUNTIME=docker CONTAINER_FILE=Containerfile.lite
@@ -2758,11 +2758,11 @@ endif
 
 # Profile detection (for platform-specific services)
 ifeq ($(PLATFORM),linux/amd64)
-    PROFILE = --profile with-fast-time 
+    PROFILE = --profile with-fast-time
 endif
 
 define COMPOSE
-$(COMPOSE_CMD) -f $(COMPOSE_FILE) $(PROFILE) 
+$(COMPOSE_CMD) -f $(COMPOSE_FILE) $(PROFILE)
 endef
 
 .PHONY: compose-up compose-restart compose-build compose-pull \

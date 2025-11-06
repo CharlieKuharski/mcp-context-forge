@@ -1476,6 +1476,7 @@ class ToolResult(BaseModelWithConfigDict):
     """
 
     content: List[Union[TextContent, ImageContent]]
+    structured_content: Optional[Dict[str, Any]] = None
     is_error: bool = False
     error_message: Optional[str] = None
 
@@ -1494,12 +1495,12 @@ class ResourceCreate(BaseModel):
         content (Union[str, bytes]): Content of the resource, which can be text or binary.
     """
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     uri: str = Field(..., description="Unique URI for the resource")
     name: str = Field(..., description="Human-readable resource name")
     description: Optional[str] = Field(None, description="Resource description")
-    mime_type: Optional[str] = Field(None, description="Resource MIME type")
+    mime_type: Optional[str] = Field(None, alias="mimeType", description="Resource MIME type")
     template: Optional[str] = Field(None, description="URI template for parameterized resources")
     content: Union[str, bytes] = Field(..., description="Resource content (text or binary)")
     tags: Optional[List[str]] = Field(default_factory=list, description="Tags for categorizing the resource")
@@ -2915,6 +2916,8 @@ class GatewayRead(BaseModelWithConfigDict):
     # Authorizations
     auth_type: Optional[str] = Field(None, description="auth_type: basic, bearer, headers, oauth, or None")
     auth_value: Optional[str] = Field(None, description="auth value: username/password or token or custom headers")
+    auth_headers: Optional[List[Dict[str, str]]] = Field(default=None, description="List of custom headers for authentication")
+    auth_headers_unmasked: Optional[List[Dict[str, str]]] = Field(default=None, description="Unmasked custom headers for administrative views")
 
     # OAuth 2.0 configuration
     oauth_config: Optional[Dict[str, Any]] = Field(None, description="OAuth 2.0 configuration including grant_type, client_id, encrypted client_secret, URLs, and scopes")
@@ -2926,6 +2929,10 @@ class GatewayRead(BaseModelWithConfigDict):
     auth_header_key: Optional[str] = Field(None, description="key for custom headers authentication")
     auth_header_value: Optional[str] = Field(None, description="vallue for custom headers authentication")
     tags: List[str] = Field(default_factory=list, description="Tags for categorizing the gateway")
+
+    auth_password_unmasked: Optional[str] = Field(default=None, description="Unmasked password for basic authentication")
+    auth_token_unmasked: Optional[str] = Field(default=None, description="Unmasked bearer token for authentication")
+    auth_header_value_unmasked: Optional[str] = Field(default=None, description="Unmasked single custom header value")
 
     # Team scoping fields for resource organization
     team_id: Optional[str] = Field(None, description="Team ID this gateway belongs to")
@@ -3039,19 +3046,24 @@ class GatewayRead(BaseModelWithConfigDict):
             if not u or not p:
                 raise ValueError("basic auth requires both username and password")
             self.auth_username, self.auth_password = u, p
+            self.auth_password_unmasked = p
 
         elif auth_type == "bearer":
             auth = auth_value.get("Authorization")
             if not (isinstance(auth, str) and auth.startswith("Bearer ")):
                 raise ValueError("bearer auth requires an Authorization header of the form 'Bearer <token>'")
             self.auth_token = auth.removeprefix("Bearer ")
+            self.auth_token_unmasked = self.auth_token
 
         elif auth_type == "authheaders":
             # For backward compatibility, populate first header in key/value fields
-            if len(auth_value) == 0:
+            if not isinstance(auth_value, dict) or len(auth_value) == 0:
                 raise ValueError("authheaders requires at least one key/value pair")
+            self.auth_headers = [{"key": str(key), "value": "" if value is None else str(value)} for key, value in auth_value.items()]
+            self.auth_headers_unmasked = [{"key": str(key), "value": "" if value is None else str(value)} for key, value in auth_value.items()]
             k, v = next(iter(auth_value.items()))
             self.auth_header_key, self.auth_header_value = k, v
+            self.auth_header_value_unmasked = v
 
         return self
 
@@ -3086,7 +3098,19 @@ class GatewayRead(BaseModelWithConfigDict):
         masked_data["auth_password"] = settings.masked_auth_value if masked_data.get("auth_password") else None
         masked_data["auth_token"] = settings.masked_auth_value if masked_data.get("auth_token") else None
         masked_data["auth_header_value"] = settings.masked_auth_value if masked_data.get("auth_header_value") else None
+        if masked_data.get("auth_headers"):
+            masked_data["auth_headers"] = [
+                {
+                    "key": header.get("key"),
+                    "value": settings.masked_auth_value if header.get("value") else header.get("value"),
+                }
+                for header in masked_data["auth_headers"]
+            ]
 
+        masked_data["auth_password_unmasked"] = self.auth_password_unmasked
+        masked_data["auth_token_unmasked"] = self.auth_token_unmasked
+        masked_data["auth_header_value_unmasked"] = self.auth_header_value_unmasked
+        masked_data["auth_headers_unmasked"] = [header.copy() for header in self.auth_headers_unmasked] if self.auth_headers_unmasked else None
         return GatewayRead.model_validate(masked_data)
 
 
@@ -3732,7 +3756,7 @@ class ServerRead(BaseModelWithConfigDict):
 class GatewayTestRequest(BaseModelWithConfigDict):
     """Schema for testing gateway connectivity.
 
-    Includes the HTTP method, base URL, path, optional headers, and body.
+    Includes the HTTP method, base URL, path, optional headers, body, and content type.
     """
 
     method: str = Field(..., description="HTTP method to test (GET, POST, etc.)")
@@ -3740,6 +3764,7 @@ class GatewayTestRequest(BaseModelWithConfigDict):
     path: str = Field(..., description="Path to append to the base URL")
     headers: Optional[Dict[str, str]] = Field(None, description="Optional headers for the request")
     body: Optional[Union[str, Dict[str, Any]]] = Field(None, description="Optional body for the request, can be a string or JSON object")
+    content_type: Optional[str] = Field("application/json", description="Content type for the request body")
 
 
 class GatewayTestResponse(BaseModelWithConfigDict):
