@@ -29,7 +29,7 @@ services:
     build:
       context: ./nginx
       dockerfile: Dockerfile
-    image: nginx:latest
+    image: mcpgateway/nginx-cache:latest
     restart: unless-stopped
     ports:
       - "8080:80"                   # HTTP caching proxy (public-facing)
@@ -52,7 +52,7 @@ services:
   # ──────────────────────────────────────────────────────────────────────
   gateway:
     image: ${IMAGE_LOCAL:-mcpgateway/mcpgateway:latest} # Use the local latest image. Run `make docker-prod` to build it.
-    #image: ghcr.io/ibm/mcp-context-forge:0.9.0 # Use the release MCP Context Forge image
+    #image: ghcr.io/ibm/mcp-context-forge:0.8.0 # Use the release MCP Context Forge image
     #image: ghcr.io/ibm/mcp-context-forge:0.7.0 # Testing migration from 0.7.0
     build:
       context: .
@@ -68,9 +68,9 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=4444
-      # - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-mysecretpassword}@postgres:5432/mcp
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-mysecretpassword}@postgres:5432/mcp
       # - DATABASE_URL=mysql+pymysql://mysql:${MYSQL_PASSWORD:-changeme}@mariadb:3306/mcp
-      - DATABASE_URL=mysql+pymysql://admin:${MARIADB_PASSWORD:-changeme}@mariadb:3306/mcp
+      # - DATABASE_URL=mysql+pymysql://admin:${MARIADB_PASSWORD:-changeme}@mariadb:3306/mcp
       # - DATABASE_URL=mongodb://admin:${MONGO_PASSWORD:-changeme}@mongodb:27017/mcp
       - CACHE_TYPE=redis # backend for caching (memory, redis, database, or none)
       - REDIS_URL=redis://redis:6379/0
@@ -119,21 +119,21 @@ services:
       # - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-otlp}
       # - OTEL_RESOURCE_ATTRIBUTES=${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=docker,service.namespace=mcp}
 
-    # depends_on:          # Default stack: Postgres + Redis + Alembic migration
-    #   postgres:
-    #     condition: service_healthy   # ▶ wait for DB
-    #   redis:
-    #     condition: service_started
-    #   # migration:
-    #   #   condition: service_completed_successfully
+    depends_on:          # Default stack: Postgres + Redis + Alembic migration
+      postgres:
+        condition: service_healthy   # ▶ wait for DB
+      redis:
+        condition: service_started
+      # migration:
+      #   condition: service_completed_successfully
 
-    # healthcheck:
-    #   test: ["CMD", "python3", "-c", "import urllib.request; import json; resp = urllib.request.urlopen('http://localhost:4444/health', timeout=5); data = json.loads(resp.read()); exit(0 if data.get('status') == 'healthy' else 1)"]
-    #   #test: ["CMD", "curl", "-f", "https://localhost:4444/health"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 5
-    #   start_period: 30s
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; import json; resp = urllib.request.urlopen('http://localhost:4444/health', timeout=5); data = json.loads(resp.read()); exit(0 if data.get('status') == 'healthy' else 1)"]
+      #test: ["CMD", "curl", "-f", "https://localhost:4444/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
     # volumes:
     #   - ./mcp-catalog.yml:/app/mcp-catalog.yml:ro # mount catalog configuration
@@ -167,28 +167,12 @@ services:
   # mariadb:
   #   image: mariadb:11
   #   environment:
-  #     - POSTGRES_USER=postgres
-  #     - POSTGRES_PASSWORD=mysecretpassword
-  #     - POSTGRES_DB=mcp
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
+  #     - MARIADB_ROOT_PASSWORD=mysecretpassword
+  #     - MARIADB_DATABASE=mcp
+  #     - MARIADB_USER=admin
+  #     - MARIADB_PASSWORD=changeme
+  #   volumes: [mariadbdata:/var/lib/mysql]
   #   networks: [mcpnet]
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 5
-  #     start_period: 20s
-
-  mariadb:
-    image: mariadb:11
-    environment:
-      - MARIADB_ROOT_PASSWORD=mysecretpassword
-      - MARIADB_DATABASE=mcp
-      - MARIADB_USER=admin
-      - MARIADB_PASSWORD=changeme
-    volumes: [mariadbdata:/var/lib/mysql]
-    networks: [mcpnet]
 
   # mariadb:
   #   image: registry.redhat.io/rhel9/mariadb-106:12.0.2-ubi10
@@ -254,7 +238,7 @@ services:
       - pgadmindata:/var/lib/pgadmin
     networks: [mcpnet]
     depends_on:
-      mariadb:
+      postgres:
         condition: service_healthy
 
   # ──────────────────────────────────────────────────────────────────────
@@ -411,147 +395,148 @@ services:
   ###############################################################################
   # Auto-registration service - registers fast_time_server with gateway
   ###############################################################################
-  # register_fast_time:
-  #   image: ghcr.io/ibm/mcpgateway:latest  # image: ghcr.io/ibm/mcp-context-forge:latest
-  #   networks: [mcpnet]
-  #   depends_on:
-  #     gateway:
-  #       condition: service_healthy
-  #     fast_time_server:
-  #       condition: service_started
-  #   environment:
-  #     - JWT_SECRET_KEY=my-test-key
-  #   # This is a one-shot container that exits after registration
-  #   restart: "no"
-  #   entrypoint: ["/bin/sh", "-c"]
-  #   command:
-  #     - |
-  #       echo "Using latest gateway image with current JWT utility..."
+  register_fast_time:
+    image: ${IMAGE_LOCAL:-mcpgateway/mcpgateway:latest}
+    networks: [mcpnet]
+    depends_on:
+      gateway:
+        condition: service_healthy
+      fast_time_server:
+        condition: service_started
+    environment:
+      - JWT_SECRET_KEY=my-test-key
+    # This is a one-shot container that exits after registration
+    restart: "no"
+    profiles: ["with-fast-time"]  # Optional: enable with --profile with-fast-time
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Using latest gateway image with current JWT utility..."
 
-  #       echo "Waiting for services to be ready..."
+        echo "Waiting for services to be ready..."
 
-  #       # Wait for gateway to be ready using Python
-  #       python3 -c "
-  #       import time
-  #       import urllib.request
-  #       import urllib.error
+        # Wait for gateway to be ready using Python
+        python3 -c "
+        import time
+        import urllib.request
+        import urllib.error
 
-  #       for i in range(1, 61):
-  #           try:
-  #               with urllib.request.urlopen('http://gateway:4444/health', timeout=2) as response:
-  #                   if response.status == 200:
-  #                       print('✅ gateway is healthy')
-  #                       break
-  #           except:
-  #               pass
-  #           print(f'Waiting for gateway... ({i}/60)')
-  #           time.sleep(2)
-  #       else:
-  #           print('❌ Gateway failed to become healthy')
-  #           exit(1)
-  #       "
+        for i in range(1, 61):
+            try:
+                with urllib.request.urlopen('http://gateway:4444/health', timeout=2) as response:
+                    if response.status == 200:
+                        print('✅ gateway is healthy')
+                        break
+            except:
+                pass
+            print(f'Waiting for gateway... ({i}/60)')
+            time.sleep(2)
+        else:
+            print('❌ Gateway failed to become healthy')
+            exit(1)
+        "
 
-  #       # Wait for fast_time_server to be ready using Python
-  #       python3 -c "
-  #       import time
-  #       import urllib.request
-  #       import urllib.error
+        # Wait for fast_time_server to be ready using Python
+        python3 -c "
+        import time
+        import urllib.request
+        import urllib.error
 
-  #       for i in range(1, 31):
-  #           try:
-  #               with urllib.request.urlopen('http://fast_time_server:8080/health', timeout=2) as response:
-  #                   if response.status == 200:
-  #                       print('✅ fast_time_server is healthy')
-  #                       break
-  #           except:
-  #               pass
-  #           print(f'Waiting for fast_time_server... ({i}/30)')
-  #           time.sleep(2)
-  #       else:
-  #           print('❌ Fast time server failed to become healthy')
-  #           exit(1)
-  #       "
+        for i in range(1, 31):
+            try:
+                with urllib.request.urlopen('http://fast_time_server:8080/health', timeout=2) as response:
+                    if response.status == 200:
+                        print('✅ fast_time_server is healthy')
+                        break
+            except:
+                pass
+            print(f'Waiting for fast_time_server... ({i}/30)')
+            time.sleep(2)
+        else:
+            print('❌ Fast time server failed to become healthy')
+            exit(1)
+        "
 
-  #       echo "Generating JWT token..."
-  #       echo "Environment: JWT_SECRET_KEY=$$JWT_SECRET_KEY"
-  #       echo "Running: python3 -m mcpgateway.utils.create_jwt_token --username admin@example.com --exp 10080 --secret my-test-key --algo HS256"
-  #       # Only capture stdout (the token), let warnings go to stderr
-  #       export MCPGATEWAY_BEARER_TOKEN=$$(python3 -m mcpgateway.utils.create_jwt_token --username admin@example.com --exp 10080 --secret my-test-key --algo HS256 2>/dev/null)
-  #       echo "Generated token: $$MCPGATEWAY_BEARER_TOKEN"
+        echo "Generating JWT token..."
+        echo "Environment: JWT_SECRET_KEY=$$JWT_SECRET_KEY"
+        echo "Running: python3 -m mcpgateway.utils.create_jwt_token --username admin@example.com --exp 10080 --secret my-test-key --algo HS256"
+        # Only capture stdout (the token), let warnings go to stderr
+        export MCPGATEWAY_BEARER_TOKEN=$$(python3 -m mcpgateway.utils.create_jwt_token --username admin@example.com --exp 10080 --secret my-test-key --algo HS256 2>/dev/null)
+        echo "Generated token: $$MCPGATEWAY_BEARER_TOKEN"
 
-  #       # Decode the token to verify it has expiration
-  #       echo "Decoding token to verify claims..."
-  #       python3 -m mcpgateway.utils.create_jwt_token --decode "$$MCPGATEWAY_BEARER_TOKEN" 2>/dev/null || echo "Failed to decode token"
+        # Decode the token to verify it has expiration
+        echo "Decoding token to verify claims..."
+        python3 -m mcpgateway.utils.create_jwt_token --decode "$$MCPGATEWAY_BEARER_TOKEN" 2>/dev/null || echo "Failed to decode token"
 
-  #       # Test authentication first
-  #       echo "Testing authentication..."
+        # Test authentication first
+        echo "Testing authentication..."
 
-  #       # Use Python to make HTTP requests
-  #       python3 -c "
-  #       import urllib.request
-  #       import urllib.error
-  #       import json
-  #       import sys
-  #       import os
+        # Use Python to make HTTP requests
+        python3 -c "
+        import urllib.request
+        import urllib.error
+        import json
+        import sys
+        import os
 
-  #       token = os.environ.get('MCPGATEWAY_BEARER_TOKEN', '')
+        token = os.environ.get('MCPGATEWAY_BEARER_TOKEN', '')
 
-  #       # Test version endpoint without auth
-  #       print('Checking gateway config...')
-  #       try:
-  #           with urllib.request.urlopen('http://gateway:4444/version') as response:
-  #               data = response.read().decode('utf-8')
-  #               print(f'Gateway version response (no auth): {data[:200]}')
-  #       except Exception as e:
-  #           print(f'Version check failed: {e}')
+        # Test version endpoint without auth
+        print('Checking gateway config...')
+        try:
+            with urllib.request.urlopen('http://gateway:4444/version') as response:
+                data = response.read().decode('utf-8')
+                print(f'Gateway version response (no auth): {data[:200]}')
+        except Exception as e:
+            print(f'Version check failed: {e}')
 
-  #       # Test version endpoint with auth
-  #       print('Testing authentication...')
-  #       try:
-  #           req = urllib.request.Request('http://gateway:4444/version')
-  #           req.add_header('Authorization', f'Bearer {token}')
-  #           with urllib.request.urlopen(req) as response:
-  #               data = response.read().decode('utf-8')
-  #               print(f'Auth test response: SUCCESS')
-  #               print(f'Response preview: {data[:200]}...')
-  #               auth_success = True
-  #       except Exception as e:
-  #           print(f'Auth test response: FAILED - {e}')
-  #           auth_success = False
+        # Test version endpoint with auth
+        print('Testing authentication...')
+        try:
+            req = urllib.request.Request('http://gateway:4444/version')
+            req.add_header('Authorization', f'Bearer {token}')
+            with urllib.request.urlopen(req) as response:
+                data = response.read().decode('utf-8')
+                print(f'Auth test response: SUCCESS')
+                print(f'Response preview: {data[:200]}...')
+                auth_success = True
+        except Exception as e:
+            print(f'Auth test response: FAILED - {e}')
+            auth_success = False
 
-  #       # Register fast_time_server with gateway
-  #       print('Registering fast_time_server with gateway...')
-  #       try:
-  #           payload = json.dumps({'name': 'fast_time', 'url': 'http://fast_time_server:8080/sse'})
-  #           req = urllib.request.Request('http://gateway:4444/gateways',
-  #                                       data=payload.encode('utf-8'),
-  #                                       method='POST')
-  #           req.add_header('Authorization', f'Bearer {token}')
-  #           req.add_header('Content-Type', 'application/json')
+        # Register fast_time_server with gateway
+        print('Registering fast_time_server with gateway...')
+        try:
+            payload = json.dumps({'name': 'fast_time', 'url': 'http://fast_time_server:8080/sse'})
+            req = urllib.request.Request('http://gateway:4444/gateways',
+                                        data=payload.encode('utf-8'),
+                                        method='POST')
+            req.add_header('Authorization', f'Bearer {token}')
+            req.add_header('Content-Type', 'application/json')
 
-  #           with urllib.request.urlopen(req) as response:
-  #               data = response.read().decode('utf-8')
-  #               print(f'Registration response: {data}')
+            with urllib.request.urlopen(req) as response:
+                data = response.read().decode('utf-8')
+                print(f'Registration response: {data}')
 
-  #               # Check if registration was successful
-  #               response_data = json.loads(data)
-  #               if 'id' in response_data:
-  #                   print('✅ Successfully registered fast_time_server')
-  #                   registration_success = True
-  #               else:
-  #                   print('❌ Registration failed - no ID in response')
-  #                   registration_success = False
+                # Check if registration was successful
+                response_data = json.loads(data)
+                if 'id' in response_data:
+                    print('✅ Successfully registered fast_time_server')
+                    registration_success = True
+                else:
+                    print('❌ Registration failed - no ID in response')
+                    registration_success = False
 
-  #       except Exception as e:
-  #           print(f'❌ Registration failed: {e}')
-  #           registration_success = False
+        except Exception as e:
+            print(f'❌ Registration failed: {e}')
+            registration_success = False
 
-  #       # Exit with error code if registration failed
-  #       if not registration_success:
-  #           sys.exit(1)
-  #       "
+        # Exit with error code if registration failed
+        if not registration_success:
+            sys.exit(1)
+        "
 
-  #       echo "✅ Setup complete!"
+        echo "✅ Setup complete!"
 
   ###############################################################################
   # Hashicorp Terraform MCP Server
